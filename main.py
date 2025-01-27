@@ -17,45 +17,76 @@ import LocalComputerSystemMonitor
 import LatLongExternalSystemMonitor
 import time
 import EarthLocation
+import requests
+import datetime
+import json
+
+def send_metrics_to_server(metrics):
+    try:
+        print("Attempting to send metrics:", json.dumps(metrics, indent=2))
+        # Correctly formatted URL with proper protocol and host
+        url = 'http://127.0.0.1:5000/api/metrics'  # Fixed URL format
+        print(f"Sending request to: {url}")
+        response = requests.post(url, json=metrics)
+        print(f"Server response status code: {response.status_code}")
+        print(f"Server response: {response.text}")
+        
+        if response.status_code == 200:
+            print("✅ Metrics successfully sent to server")
+        else:
+            print(f"❌ Failed to send metrics. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Error sending metrics to server: {str(e)}")
+
 def main():
-    
     while True:
         try:
-            # Collect local pc metrics
+            # Collect local computer metrics
+            print("\n1. Collecting local system metrics...")
             sys_metrics = LocalComputerSystemMonitor.get_system_metrics()
-            if sys_metrics:
-                print("Current system metrics:", sys_metrics)
-            else:
-                print("Local system metrics failed")   
+            if not sys_metrics:
+                print("❌ Local system metrics failed")
+                continue
+            print("✅ Local metrics collected:", sys_metrics)
 
-
-            # Collect 3rd party metrics
-
+            # Collect ISS location data
+            print("\n2. Collecting ISS location data...")
             get_iss_data = LatLongExternalSystemMonitor.get_iss_location()
-            print("Current system metrics:", get_iss_data)   
+            if get_iss_data is None:
+                print("❌ Failed to get ISS location data")
+                continue
+            print("✅ ISS data collected:", get_iss_data)
 
+            print("\n3. Getting Earth location...")
+            locationOnEarth = EarthLocation.get_location_from_coordinates(
+                get_iss_data["latitude"], 
+                get_iss_data["longitude"]
+            )
+            print("✅ Earth location determined:", locationOnEarth)
 
-            if get_iss_data is not None:
-                locationOnEarth = EarthLocation.get_location_from_coordinates(
-                    get_iss_data["latitude"], 
-                    get_iss_data["longitude"]
-                    )
+            # Prepare combined metrics
+            combined_metrics = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "cpu_usage": float(sys_metrics.get("cpu_usage", 0)),
+                "battery_percentage": float(sys_metrics.get("battery_percentage", 0)),
+                "iss_latitude": float(get_iss_data["latitude"]),
+                "iss_longitude": float(get_iss_data["longitude"]),
+                "iss_location": str(locationOnEarth)
+            }
 
-                print("Current system metrics:", get_iss_data, locationOnEarth)   
-                print('waiting 20 secs...')
-                time.sleep(20)  
-       
-            else:
-                print("failed to get iss loc data")
-                time.sleep(20)  
-    
-
+            print("\n4. Sending metrics to server...")
+            send_metrics_to_server(combined_metrics)
+            
+            print('\nWaiting 20 secs before next update...\n')
+            print('-' * 50)
+            time.sleep(20)
 
         except Exception as e:
-            print(f"Error occurred: {e}")
-            time.sleep(10)  
+            print(f"❌ Error in main loop: {str(e)}")
+            print("Stack trace:", e.__traceback__)
+            time.sleep(10)
 
 if __name__ == "__main__":
+    print("Starting metrics collection...")
     main()
-
 

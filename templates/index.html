@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Station Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-900 text-white">
+    <head>
+      <title>Frosted Navbar using Tailwind</title>
+      <meta charset="UTF-8" />
+      <meta
+        name="viewport"
+        content="width=device-width, 
+                    initial-scale=1.0"
+      />
+      <!-- Tailwind CSS CDN Link -->
+      <link
+        href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+        rel="stylesheet"
+      />
+    </head>
+
+    <nav
+      class="backdrop-blur-md bg-white/10 border-b border-white/20 fixed w-full top-0 z-50 shadow-lg"
+    >
+      <div
+        class="container mx-auto flex justify-between items-center px-6 py-4"
+      >
+        <a
+          href="#"
+          class="text-white text-xl font-bold hover:text-gray-300 transition-colors"
+        >
+          🌙 Space Station Dashboard
+        </a>
+
+        <!-- Navigation Links -->
+        <ul class="flex space-x-6">
+          <li>
+            <a
+              href="#"
+              class="text-white/80 hover:text-white transition-colors font-medium"
+            >
+              Current Data
+            </a>
+          </li>
+          <li>
+            <a
+              href="#"
+              class="text-white/80 hover:text-white transition-colors font-medium"
+            >
+              Historical Data
+            </a>
+          </li>
+          <li>
+            <a
+              href="#"
+              class="text-white/80 hover:text-white transition-colors font-medium"
+            >
+              Map
+            </a>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <div class="bg-gray-900 text-white p-8">
+      <div class="pt-20" id="av-orbit">
+        <script>
+          var avOrbitProperties = {
+            size: "large",
+            lang: "en",
+          };
+        </script>
+        <script src="https://astroviewer.net/widgets/widgets/orbit.js"></script>
+        <canvas id="map_canvas2" width="500" height="200"></canvas>
+      </div>
+
+      <div id="current-data" class="mb-8">
+        <h2 class="text-xl font-semibold mb-4 pt-20">Current Data</h2>
+        <pre id="latest" class="bg-gray-800 p-4 rounded-lg"></pre>
+      </div>
+
+      <div id="historical-data" class="mb-8">
+        <h2 class="text-xl font-semibold mb-4">Historical Data</h2>
+        <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+          <table class="w-full text-sm text-left text-gray-400">
+            <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+              <tr>
+                <th scope="col" class="px-6 py-3">Timestamp</th>
+                <th scope="col" class="px-6 py-3">CPU Usage</th>
+                <th scope="col" class="px-6 py-3">Battery</th>
+                <th scope="col" class="px-6 py-3">ISS Latitude</th>
+                <th scope="col" class="px-6 py-3">ISS Longitude</th>
+                <th scope="col" class="px-6 py-3">ISS Location</th>
+              </tr>
+            </thead>
+            <tbody id="history-table">
+              <!-- Data will be inserted here by JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Command Button -->
+      <button
+        onclick="sendCommand('restart')"
+        class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+      >
+        Restart Device
+      </button>
+
+      <!-- Status Message -->
+      <div id="status-message" class="text-white"></div>
+
+      <script>
+        async function fetchLatest() {
+          try {
+            const response = await fetch("/api/metrics/latest");
+            const data = await response.json();
+            document.getElementById("latest").innerText = JSON.stringify(
+              data,
+              null,
+              2
+            );
+          } catch (error) {
+            console.error("Error fetching latest metrics:", error);
+          }
+        }
+
+        async function fetchHistory() {
+          try {
+            const response = await fetch("/api/metrics/history");
+            const data = await response.json();
+            const table = document.getElementById("history-table");
+            table.innerHTML = "";
+            data.forEach((row) => {
+              const tr = document.createElement("tr");
+              tr.className = "border-b bg-gray-800 border-gray-700";
+              tr.innerHTML = `
+              <td class="px-6 py-4">${row.timestamp}</td>
+              <td class="px-6 py-4">${row.cpu_usage}</td>
+              <td class="px-6 py-4">${row.battery_percentage}</td>
+              <td class="px-6 py-4">${row.iss_latitude}</td>
+              <td class="px-6 py-4">${row.iss_longitude}</td>
+              <td class="px-6 py-4">${row.iss_location}</td>
+            `;
+              table.appendChild(tr);
+            });
+          } catch (error) {
+            console.error("Error fetching history:", error);
+          }
+        }
+
+        async function sendCommand(command) {
+          try {
+            const response = await fetch("/api/command", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ command: command }),
+            });
+
+            const result = await response.json();
+            document.getElementById("status-message").textContent =
+              result.message;
+
+            // Clear the message after 3 seconds
+            setTimeout(() => {
+              document.getElementById("status-message").textContent = "";
+            }, 3000);
+          } catch (error) {
+            document.getElementById("status-message").textContent =
+              "Error sending command";
+          }
+        }
+
+        // Initial fetch
+        fetchLatest();
+        fetchHistory();
+
+        // Set up periodic updates
+        setInterval(() => {
+          fetchLatest();
+          fetchHistory();
+        }, 20000);
+      </script>
+    </div>
+  </body>
+</html>

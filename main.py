@@ -35,8 +35,9 @@ def send_metrics_to_server(metrics):
                 
         print("Attempting to send metrics:", json.dumps(metrics, indent=2))
         # Correctly formatted URL with proper protocol and host
-        url = 'https://tomjoyce.pythonanywhere.com/api/metrics'  
- 
+        # url = 'https://tomjoyce.pythonanywhere.com/api/metrics'  
+        url = 'http://127.0.0.1:5000/api/metrics'
+
         print(f"Sending request to: {url}")
         response = requests.post(url, json=metrics)
         print(f"Server response status code: {response.status_code}")

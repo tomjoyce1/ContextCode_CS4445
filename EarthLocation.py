@@ -1,10 +1,13 @@
 from geopy.geocoders import Nominatim
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+USER_AGENT = os.getenv('USER_AGENT', 'default_user_agent')
+
+# Reverse geocoding
 def get_location_from_coordinates(latitude, longitude):
-    # Initialize geolocator
-    geolocator = Nominatim(user_agent="thomasjoyceofficial@gmail.com")
-    
-    # Get location
+    geolocator = Nominatim(user_agent=USER_AGENT)
     try:
         location = geolocator.reverse((latitude, longitude), exactly_one=True)
         if location:
@@ -13,11 +16,3 @@ def get_location_from_coordinates(latitude, longitude):
             return "Location not found."
     except Exception as e:
         return f"An error occurred: {e}"
-
-# Example ISS coordinates
-# latitude = 41.4349  # Replace with ISS latitude
-# longitude = 42.1661  # Replace with ISS longitude
-
-# Get location
-# location = get_location_from_coordinates(latitude, longitude)
-# print(f"The location for Latitude {latitude}, Longitude {longitude} is: {location}")

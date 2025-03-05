@@ -21,34 +21,14 @@ import datetime
 import json
 import os
 import sys
+from MetricsQueue import MetricsQueue
+
+# Initialize queue at module level
+metrics_queue = MetricsQueue('http://127.0.0.1:5000/api/metrics')  # Use local URL for testing
 
 def send_metrics_to_server(metrics):
-    try:
-        formatted_metrics = {
-            "timestamp": metrics["timestamp"],
-            "cpu_usage": float(metrics["cpu_usage"]),
-            "battery_percentage": float(metrics["battery_percentage"]),
-            "iss_latitude": float(metrics["iss_latitude"]),
-            "iss_longitude": float(metrics["iss_longitude"]),
-            "iss_location": str(metrics["iss_location"])
-        }
-                
-        print("Attempting to send metrics:", json.dumps(metrics, indent=2))
-        # Correctly formatted URL with proper protocol and host
-        # url = 'https://tomjoyce.pythonanywhere.com/api/metrics'  
-        url = 'http://127.0.0.1:5000/api/metrics'
+    metrics_queue.add_metrics(metrics)
 
-        print(f"Sending request to: {url}")
-        response = requests.post(url, json=metrics)
-        print(f"Server response status code: {response.status_code}")
-        print(f"Server response: {response.text}")
-        
-        if response.status_code == 200:
-            print("✅ Metrics successfully sent to server")
-        else:
-            print(f"❌ Failed to send metrics. Status code: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Error sending metrics to server: {str(e)}")
 def check_for_commands():
     try:
         print("\nChecking for commands...")
@@ -85,56 +65,68 @@ def check_for_commands():
 
 
 def main():
-    while True:
-        try:
-            # Check for commands first
-            print("\nChecking for commands...")
-            check_for_commands()
+    # Start the queue worker
+    metrics_queue.start()
+    
+    try:
+        while True:
+            try:
+                # Check for commands first
+                print("\nChecking for commands...")
+                check_for_commands()
 
-            # Collect local computer metrics
-            print("\n1. Collecting local system metrics...")
-            sys_metrics = LocalComputerSystemMonitor.get_system_metrics()
-            if not sys_metrics:
-                print("❌ Local system metrics failed")
-                continue
-            print("✅ Local metrics collected:", sys_metrics)
+                # Collect local computer metrics
+                print("\n1. Collecting local system metrics...")
+                sys_metrics = LocalComputerSystemMonitor.get_system_metrics()
+                if not sys_metrics:
+                    print("❌ Local system metrics failed")
+                    continue
+                print("✅ Local metrics collected:", sys_metrics)
 
-            # Collect ISS location data
-            print("\n2. Collecting ISS location data...")
-            get_iss_data = LatLongExternalSystemMonitor.get_iss_location()
-            if get_iss_data is None:
-                print("❌ Failed to get ISS location data")
-                continue
-            print("✅ ISS data collected:", get_iss_data)
+                # Collect ISS location data
+                print("\n2. Collecting ISS location data...")
+                get_iss_data = LatLongExternalSystemMonitor.get_iss_location()
+                if get_iss_data is None:
+                    print("❌ Failed to get ISS location data")
+                    continue
+                print("✅ ISS data collected:", get_iss_data)
 
-            print("\n3. Getting Earth location...")
-            locationOnEarth = EarthLocation.get_location_from_coordinates(
-                get_iss_data["latitude"], 
-                get_iss_data["longitude"]
-            )
-            print("✅ Earth location determined:", locationOnEarth)
+                print("\n3. Getting Earth location...")
+                locationOnEarth = EarthLocation.get_location_from_coordinates(
+                    get_iss_data["latitude"], 
+                    get_iss_data["longitude"]
+                )
+                print("✅ Earth location determined:", locationOnEarth)
 
-            # Prepare combined metrics
-            combined_metrics = {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "cpu_usage": float(sys_metrics.get("cpu_usage", 0)),
-                "battery_percentage": float(sys_metrics.get("battery_percentage", 0)),
-                "iss_latitude": float(get_iss_data["latitude"]),
-                "iss_longitude": float(get_iss_data["longitude"]),
-                "iss_location": str(locationOnEarth)
-            }
+                # Prepare combined metrics
+                combined_metrics = {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "cpu_usage": float(sys_metrics.get("cpu_usage", 0)),
+                    "battery_percentage": float(sys_metrics.get("battery_percentage", 0)),
+                    "iss_latitude": float(get_iss_data["latitude"]),
+                    "iss_longitude": float(get_iss_data["longitude"]),
+                    "iss_location": str(locationOnEarth)
+                }
 
-            print("\n4. Sending metrics to server...")
-            send_metrics_to_server(combined_metrics)
-            
-            print('\nWaiting 20 secs before next update...\n')
-            print('-' * 50)
-            time.sleep(20)
+                print("\n4. Queueing metrics for sending...")
+                send_metrics_to_server(combined_metrics)
+                
+                print('\nWaiting 20 secs before next update...\n')
+                print('-' * 50)
+                time.sleep(20)
 
-        except Exception as e:
-            print(f"❌ Error in main loop: {str(e)}")
-            print("Stack trace:", e.__traceback__)
-            time.sleep(10)
+            except Exception as e:
+                print(f"❌ Error in main loop: {str(e)}")
+                time.sleep(10)
+
+    except KeyboardInterrupt:
+        print("\nStopping metrics queue...")
+        metrics_queue.stop()
+        print("Exiting gracefully...")
+    except Exception as e:
+        metrics_queue.stop()
+        print(f"Fatal error: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     print("Starting metrics collection...")

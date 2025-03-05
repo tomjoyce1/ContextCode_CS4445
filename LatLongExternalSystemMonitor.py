@@ -17,9 +17,3 @@ def get_iss_location():
         return None
 
 
-# Fetch the ISS location every second
-# while True:
-#     iss_data = get_iss_location()
-#     if iss_data:
-#         print(f"Timestamp: {iss_data['timestamp']}, Latitude: {iss_data['latitude']}, Longitude: {iss_data['longitude']}")
-#     time.sleep(1)

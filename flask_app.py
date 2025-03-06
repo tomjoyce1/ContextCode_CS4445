@@ -3,45 +3,82 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timezone
 import os
 from flask_socketio import SocketIO, emit
-
-# Set up database path without deleting
-db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'metrics.db')
-
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+from config import Config
+import time
+import psycopg2
 
 def aware_utcnow():
     return datetime.now(timezone.utc)
+
+def init_db():
+    max_retries = 5
+    retry_delay = 2
+
+    for attempt in range(max_retries):
+        try:
+            # Test connection
+            conn = psycopg2.connect(
+                dbname=Config.DB_NAME,
+                user=Config.DB_USER,
+                password=Config.DB_PASSWORD,
+                host=Config.DB_HOST,
+                port=Config.DB_PORT
+            )
+            conn.close()
+            print("Database connection successful")
+            return True
+        except psycopg2.OperationalError as e:
+            if attempt < max_retries - 1:
+                print(f"Database connection attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print("Failed to connect to database after multiple attempts")
+                raise e
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+# Initialize database with retry logic
+if init_db():
+    db = SQLAlchemy(app)
+    socketio = SocketIO(app, cors_allowed_origins="*")
 
 class CpuUsage(db.Model):
     __tablename__ = 'cpu_usage'
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False)
+    timestamp = db.Column(db.TIMESTAMP(timezone=True), nullable=False)
     cpu_usage = db.Column(db.Float, nullable=False)
+    
+    __table_args__ = (
+        db.Index('idx_cpu_device_time', 'device_id', 'timestamp'),
+    )
 
 class BatteryPercentage(db.Model):
     __tablename__ = 'battery_percentage'
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False)
+    timestamp = db.Column(db.TIMESTAMP(timezone=True), nullable=False)
     battery_percentage = db.Column(db.Float, nullable=False)
+    
+    __table_args__ = (
+        db.Index('idx_battery_device_time', 'device_id', 'timestamp'),
+    )
 
 class IssLocation(db.Model):
     __tablename__ = 'iss_location'
     id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.DateTime, nullable=False)
+    timestamp = db.Column(db.TIMESTAMP(timezone=True), nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
-    location = db.Column(db.String, nullable=False)
+    location = db.Column(db.Text, nullable=False)
+    
+    __table_args__ = (
+        db.Index('idx_iss_timestamp', 'timestamp'),
+    )
 
-# Only create tables if they don't exist
 with app.app_context():
     try:
-        # db.drop_all()
         db.create_all()
         print('Checked database tables - created if not existing')
     except Exception as e:
@@ -57,7 +94,7 @@ def home():
 @app.route('/api/metrics', methods=['POST'])
 def receive_metrics():
     data = request.json
-    device_id = data.get('device_id', 'unknown_device')  # Ensure this is consistent
+    device_id = data.get('device_id', 'unknown_device')
     timestamp = datetime.strptime(data['timestamp'], '%Y-%m-%dT%H:%M:%S.%f')
 
     metrics = [
@@ -70,23 +107,19 @@ def receive_metrics():
     db.session.commit()
     print(f"Inserting metrics for device: {device_id}")
     
-    # After storing metrics, emit to all connected clients
     socketio.emit('new_metrics', data)
     return jsonify({"message": "Metrics received and stored successfully"}), 200
 
-
 @app.route('/api/metrics/latest', methods=['GET'])
 def latest_metrics():
-    device_id = request.args.get('device_id')  # Remove default value
+    device_id = request.args.get('device_id')
     print(f"Fetching latest metrics for device: {device_id}")
     
     try:
         if device_id:
-            # If device_id provided, filter by it
             latest_cpu = CpuUsage.query.filter_by(device_id=device_id).order_by(CpuUsage.timestamp.desc()).first()
             latest_battery = BatteryPercentage.query.filter_by(device_id=device_id).order_by(BatteryPercentage.timestamp.desc()).first()
         else:
-            # If no device_id, get latest from any device
             latest_cpu = CpuUsage.query.order_by(CpuUsage.timestamp.desc()).first()
             if latest_cpu:
                 device_id = latest_cpu.device_id
@@ -113,7 +146,7 @@ def latest_metrics():
 def metrics_history():
     device_id = request.args.get('device_id')
     page = request.args.get('page', 1, type=int)
-    per_page = 10  # Number of records per page
+    per_page = 10
     
     try:
         if not device_id:
@@ -123,11 +156,9 @@ def metrics_history():
             else:
                 return jsonify({"items": [], "total_pages": 0})
 
-        # Get total count for pagination
         total_records = CpuUsage.query.filter_by(device_id=device_id).count()
         total_pages = (total_records + per_page - 1) // per_page
 
-        # Get paginated records
         cpu_metrics = CpuUsage.query.filter_by(device_id=device_id)\
             .order_by(CpuUsage.timestamp.desc())\
             .offset((page - 1) * per_page)\
@@ -195,7 +226,6 @@ def check_command():
 @app.route('/api/devices', methods=['GET'])
 def get_devices():
     try:
-        # Get unique device IDs from CPU usage table
         devices = db.session.query(CpuUsage.device_id.distinct()).all()
         device_list = [device[0] for device in devices]
         return jsonify({"devices": device_list})

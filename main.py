@@ -22,9 +22,13 @@ import json
 import os
 import sys
 from MetricsQueue import MetricsQueue
+import socket
 
 # Initialize queue at module level
 metrics_queue = MetricsQueue('http://127.0.0.1:5000/api/metrics')  # Use local URL for testing
+
+def get_device_id():
+    return socket.gethostname()
 
 def send_metrics_to_server(metrics):
     metrics_queue.add_metrics(metrics)
@@ -67,6 +71,8 @@ def check_for_commands():
 def main():
     # Start the queue worker
     metrics_queue.start()
+    device_id = get_device_id()
+    print(f"Device ID: {device_id}")
     
     try:
         while True:
@@ -100,6 +106,7 @@ def main():
 
                 # Prepare combined metrics
                 combined_metrics = {
+                    "device_id": device_id,
                     "timestamp": datetime.datetime.now().isoformat(),
                     "cpu_usage": float(sys_metrics.get("cpu_usage", 0)),
                     "battery_percentage": float(sys_metrics.get("battery_percentage", 0)),

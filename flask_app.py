@@ -192,5 +192,16 @@ def check_command():
         return jsonify({"command": command})
     return jsonify({"command": None})
 
+@app.route('/api/devices', methods=['GET'])
+def get_devices():
+    try:
+        # Get unique device IDs from CPU usage table
+        devices = db.session.query(CpuUsage.device_id.distinct()).all()
+        device_list = [device[0] for device in devices]
+        return jsonify({"devices": device_list})
+    except Exception as e:
+        print(f"Error getting devices: {str(e)}")
+        return jsonify({"error": str(e)})
+
 if __name__ == '__main__':
     socketio.run(app, debug=True)

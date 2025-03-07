@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Space Station Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
   </head>
   <body class="bg-gray-900 text-white">
     <head>
-      <title>Frosted Navbar using Tailwind</title>
+      <title>Frosted Navbar</title>
       <meta charset="UTF-8" />
       <meta
         name="viewport"
@@ -33,36 +35,10 @@
           href="#"
           class="text-white text-xl font-bold hover:text-gray-300 transition-colors"
         >
-          🌙 Space Station Dashboard
+        ✦ Space Station Dashboard
         </a>
 
-        <!-- Navigation Links -->
-        <ul class="flex space-x-6">
-          <li>
-            <a
-              href="#"
-              class="text-white/80 hover:text-white transition-colors font-medium"
-            >
-              Current Data
-            </a>
-          </li>
-          <li>
-            <a
-              href="#"
-              class="text-white/80 hover:text-white transition-colors font-medium"
-            >
-              Historical Data
-            </a>
-          </li>
-          <li>
-            <a
-              href="#"
-              class="text-white/80 hover:text-white transition-colors font-medium"
-            >
-              Map
-            </a>
-          </li>
-        </ul>
+        
       </div>
     </nav>
 
@@ -110,11 +86,10 @@
               </tr>
             </thead>
             <tbody id="history-table">
-              <!-- Data will be inserted here by JavaScript -->
             </tbody>
           </table>
         </div>
-        <!-- Add pagination controls -->
+        <!-- pagination  -->
         <div class="flex justify-between items-center mt-4">
           <button
             id="prevPage"
@@ -130,6 +105,20 @@
             Next
           </button>
         </div>
+
+        <!-- Add Charts Section -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <!-- System Metrics Chart -->
+          <!-- <div class="bg-gray-800 p-4 rounded-lg">
+          <h3 class="text-lg font-semibold mb-4">System Metrics Over Time</h3>
+          <canvas id="systemMetricsChart"></canvas>
+        </div> -->
+          <!-- ISS Location Chart -->
+          <div class="bg-gray-800 p-4 rounded-lg">
+            <h3 class="text-lg font-semibold mb-4">ISS Location Plot</h3>
+            <canvas id="issLocationChart"></canvas>
+          </div>
+        </div>
       </div>
 
       <!-- Command Button -->
@@ -144,20 +133,9 @@
       <div id="status-message" class="text-white"></div>
 
       <script>
-        const socket = io();
         let currentPage = 1;
         let totalPages = 1;
         let devices = new Set();
-
-        // Listen for real-time updates
-        socket.on("new_metrics", (data) => {
-          // Only update if we're on the first page
-          if (currentPage === 1) {
-            fetchHistory();
-          }
-          // Always update current data
-          updateLatestMetrics(data);
-        });
 
         function updateLatestMetrics(data) {
           document.getElementById("latest").innerText = JSON.stringify(
@@ -166,6 +144,15 @@
             2
           );
         }
+
+        // Set up periodic updates using setInterval
+        setInterval(() => {
+          fetchLatest();
+          if (currentPage === 1) {
+            fetchHistory();
+          }
+          updateDeviceList();
+        }, 20000);
 
         // Modify existing fetchLatest to use the stored data
         async function fetchLatest() {
@@ -216,6 +203,145 @@
             fetchHistory();
           });
 
+        async function updateCharts(data) {
+          // Prepare data for charts
+          const timestamps = data.items.map((item) => new Date(item.timestamp));
+          const cpuData = data.items.map((item) => item.cpu_usage);
+          const batteryData = data.items.map((item) => item.battery_percentage);
+          const latitudes = data.items.map((item) => item.iss_latitude);
+          const longitudes = data.items.map((item) => item.iss_longitude);
+
+          // System Metrics Chart
+          const systemCtx = document.getElementById("systemMetricsChart");
+          if (window.systemChart) {
+            window.systemChart.destroy();
+          }
+          window.systemChart = new Chart(systemCtx, {
+            type: "line",
+            data: {
+              labels: timestamps,
+              datasets: [
+                {
+                  label: "CPU Usage (%)",
+                  data: cpuData,
+                  borderColor: "#3b82f6",
+                  tension: 0.4,
+                  fill: false,
+                },
+                {
+                  label: "Battery (%)",
+                  data: batteryData,
+                  borderColor: "#10b981",
+                  tension: 0.4,
+                  fill: false,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              interaction: {
+                intersect: false,
+                mode: "index",
+              },
+              scales: {
+                x: {
+                  type: "time",
+                  time: {
+                    unit: "minute",
+                  },
+                  grid: {
+                    color: "rgba(255, 255, 255, 0.1)",
+                  },
+                  ticks: {
+                    color: "#9ca3af",
+                  },
+                },
+                y: {
+                  beginAtZero: true,
+                  max: 100,
+                  grid: {
+                    color: "rgba(255, 255, 255, 0.1)",
+                  },
+                  ticks: {
+                    color: "#9ca3af",
+                  },
+                },
+              },
+              plugins: {
+                legend: {
+                  labels: {
+                    color: "#9ca3af",
+                  },
+                },
+              },
+            },
+          });
+
+          // ISS Location Chart
+          const issCtx = document.getElementById("issLocationChart");
+          if (window.issChart) {
+            window.issChart.destroy();
+          }
+          window.issChart = new Chart(issCtx, {
+            type: "scatter",
+            data: {
+              datasets: [
+                {
+                  label: "ISS Position",
+                  data: data.items.map((item) => ({
+                    x: item.iss_longitude,
+                    y: item.iss_latitude,
+                  })),
+                  backgroundColor: "#f59e0b",
+                  pointRadius: 6,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              scales: {
+                x: {
+                  min: -180,
+                  max: 180,
+                  title: {
+                    display: true,
+                    text: "Longitude",
+                    color: "#9ca3af",
+                  },
+                  grid: {
+                    color: "rgba(255, 255, 255, 0.1)",
+                  },
+                  ticks: {
+                    color: "#9ca3af",
+                  },
+                },
+                y: {
+                  min: -90,
+                  max: 90,
+                  title: {
+                    display: true,
+                    text: "Latitude",
+                    color: "#9ca3af",
+                  },
+                  grid: {
+                    color: "rgba(255, 255, 255, 0.1)",
+                  },
+                  ticks: {
+                    color: "#9ca3af",
+                  },
+                },
+              },
+              plugins: {
+                legend: {
+                  labels: {
+                    color: "#9ca3af",
+                  },
+                },
+              },
+            },
+          });
+        }
+
         async function fetchHistory() {
           const deviceId = document.getElementById("deviceSelector").value;
           try {
@@ -242,6 +368,9 @@
               `;
               table.appendChild(tr);
             });
+
+            // Update charts with new data
+            updateCharts(data);
 
             // Update pagination controls
             totalPages = data.total_pages;

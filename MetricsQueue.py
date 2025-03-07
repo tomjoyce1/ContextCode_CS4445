@@ -5,6 +5,7 @@ import requests
 import json
 from datetime import datetime
 
+# wrapped object keeps track of retry attempts
 class QueuedMetric:
     def __init__(self, metrics, retry_count=0, next_retry=None):
         self.metrics = metrics
@@ -14,11 +15,12 @@ class QueuedMetric:
 class MetricsQueue:
     def __init__(self, server_url='https://tomjoyce.pythonanywhere.com/api/metrics'):
         self.queue = Queue()
+        # A background thread (self.worker_thread) runs _process_queue() to continuously check the queue and send metrics.
         self.worker_thread = threading.Thread(target=self._process_queue, daemon=True)
         self.running = True
         self.server_url = server_url
         self.max_retries = 5
-        self.base_delay = 2  # Base delay in seconds
+        self.base_delay = 2  
         
     def start(self):
         print("Starting metrics queue worker...")
@@ -35,10 +37,11 @@ class MetricsQueue:
         print(f"Added metrics to queue. Queue size: {self.queue.qsize()}")
         
     def _calculate_next_retry(self, retry_count):
-        # Exponential backoff: 2^retry_count seconds
+        # Exponential backoff 
         delay = self.base_delay * (2 ** retry_count)
         return datetime.now().timestamp() + delay
         
+    # picks up metrics from queue, sends using send_metrics
     def _process_queue(self):
         while self.running:
             try:
@@ -64,10 +67,12 @@ class MetricsQueue:
                 time.sleep(1)
             except Exception as e:
                 print(f"Queue processing error: {e}")
-                
+    
+    # makes post request to server
     def _send_metrics(self, metrics):
         try:
             print(f"Attempting to send metrics to {self.server_url}")
+            # automatic serialisation of dict by pythons request library
             response = requests.post(self.server_url, json=metrics)
             
             if response.status_code == 200:

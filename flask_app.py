@@ -2,10 +2,10 @@ from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timezone
 import os
-from flask_socketio import SocketIO, emit
 from config import Config
 import time
-import psycopg2
+import pymysql  # Required for MySQL
+pymysql.install_as_MySQLdb()  # MySQL compatibility layer
 
 def aware_utcnow():
     return datetime.now(timezone.utc)
@@ -16,18 +16,17 @@ def init_db():
 
     for attempt in range(max_retries):
         try:
-            # Test connection
-            conn = psycopg2.connect(
-                dbname=Config.DB_NAME,
+            # Test MySQL connection
+            conn = pymysql.connect(
+                host=Config.DB_HOST,
                 user=Config.DB_USER,
                 password=Config.DB_PASSWORD,
-                host=Config.DB_HOST,
-                port=Config.DB_PORT
+                database=Config.DB_NAME
             )
             conn.close()
             print("Database connection successful")
             return True
-        except psycopg2.OperationalError as e:
+        except Exception as e:
             if attempt < max_retries - 1:
                 print(f"Database connection attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
@@ -41,14 +40,13 @@ app.config.from_object(Config)
 # Initialize database with retry logic
 if init_db():
     db = SQLAlchemy(app)
-    socketio = SocketIO(app, cors_allowed_origins="*")
 
 class CpuUsage(db.Model):
     __tablename__ = 'cpu_usage'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     device_id = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.TIMESTAMP(timezone=True), nullable=False)
-    cpu_usage = db.Column(db.Float, nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False)  # MySQL datetime
+    cpu_usage = db.Column(db.Float(precision=5), nullable=False)
     
     __table_args__ = (
         db.Index('idx_cpu_device_time', 'device_id', 'timestamp'),
@@ -56,10 +54,10 @@ class CpuUsage(db.Model):
 
 class BatteryPercentage(db.Model):
     __tablename__ = 'battery_percentage'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     device_id = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.TIMESTAMP(timezone=True), nullable=False)
-    battery_percentage = db.Column(db.Float, nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False)  # MySQL datetime
+    battery_percentage = db.Column(db.Float(precision=5), nullable=False)
     
     __table_args__ = (
         db.Index('idx_battery_device_time', 'device_id', 'timestamp'),
@@ -67,11 +65,11 @@ class BatteryPercentage(db.Model):
 
 class IssLocation(db.Model):
     __tablename__ = 'iss_location'
-    id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.TIMESTAMP(timezone=True), nullable=False)
-    latitude = db.Column(db.Float, nullable=False)
-    longitude = db.Column(db.Float, nullable=False)
-    location = db.Column(db.Text, nullable=False)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    timestamp = db.Column(db.DateTime, nullable=False)  # MySQL datetime
+    latitude = db.Column(db.Float(precision=10), nullable=False)
+    longitude = db.Column(db.Float(precision=10), nullable=False)
+    location = db.Column(db.Text(length=1000), nullable=False)  # MySQL text with length
     
     __table_args__ = (
         db.Index('idx_iss_timestamp', 'timestamp'),
@@ -87,9 +85,14 @@ with app.app_context():
 
 latest_command = None
 
+# api endpoints
 @app.route('/')
 def home():
     return render_template('index.html')
+
+# Aggregator api
+# Receives a POST request with CPU, battery, and ISS data.
+# Parses the timestamp and stores all metrics in the database.
 
 @app.route('/api/metrics', methods=['POST'])
 def receive_metrics():
@@ -107,7 +110,6 @@ def receive_metrics():
     db.session.commit()
     print(f"Inserting metrics for device: {device_id}")
     
-    socketio.emit('new_metrics', data)
     return jsonify({"message": "Metrics received and stored successfully"}), 200
 
 @app.route('/api/metrics/latest', methods=['GET'])
@@ -149,30 +151,33 @@ def metrics_history():
     per_page = 10
     
     try:
-        if not device_id:
-            latest_record = CpuUsage.query.order_by(CpuUsage.timestamp.desc()).first()
-            if latest_record:
-                device_id = latest_record.device_id
-            else:
-                return jsonify({"items": [], "total_pages": 0})
-
-        total_records = CpuUsage.query.filter_by(device_id=device_id).count()
+        query = CpuUsage.query
+        if device_id:  # If specific device selected
+            query = query.filter_by(device_id=device_id)
+            
+        total_records = query.count()
         total_pages = (total_records + per_page - 1) // per_page
 
-        cpu_metrics = CpuUsage.query.filter_by(device_id=device_id)\
-            .order_by(CpuUsage.timestamp.desc())\
+        # Get paginated records for all or specific device
+        cpu_metrics = query.order_by(CpuUsage.timestamp.desc())\
             .offset((page - 1) * per_page)\
             .limit(per_page)\
             .all()
 
         history = []
         for cpu in cpu_metrics:
-            battery = BatteryPercentage.query.filter_by(device_id=device_id, timestamp=cpu.timestamp).first()
+            # Match battery data by device_id and timestamp
+            battery = BatteryPercentage.query.filter_by(
+                device_id=cpu.device_id, 
+                timestamp=cpu.timestamp
+            ).first()
+            
+            # Match ISS data by timestamp only
             iss = IssLocation.query.filter_by(timestamp=cpu.timestamp).first()
             
             if battery and iss:
                 history.append({
-                    "device_id": device_id,
+                    "device_id": cpu.device_id,
                     "timestamp": cpu.timestamp,
                     "cpu_usage": cpu.cpu_usage,
                     "battery_percentage": battery.battery_percentage,
@@ -234,4 +239,4 @@ def get_devices():
         return jsonify({"error": str(e)})
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    app.run(debug=True)

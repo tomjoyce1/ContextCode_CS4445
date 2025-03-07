@@ -1,16 +1,3 @@
-'''
-Project brief : 
-Monitors a range of system values from this computer (e.g battery, cpu usage)
-
-Calls spacex api https://github.com/r-spacex/SpaceX-API and fetches 2 regularly chaning metrics
-
-Publishes these metrics to a cloud platform (e.g pythonanywhere)
-
-The cloud platform has a database of historical data
-
-There is a frontend ui page which shows historical data from the db and current data
-
-'''
 import psutil
 import LocalComputerSystemMonitor
 import LatLongExternalSystemMonitor
@@ -24,13 +11,17 @@ import sys
 from MetricsQueue import MetricsQueue
 import socket
 
-# Initialize queue at module level
-metrics_queue = MetricsQueue('http://127.0.0.1:5000/api/metrics')  # Use local URL for testing
+metrics_queue = MetricsQueue('https://tomjoyce.pythonanywhere.com/api/metrics')  
+
+# def get_device_id():
+#     return socket.gethostname()
 
 def get_device_id():
-    return socket.gethostname()
+    return os.getenv('DEVICE_ID', socket.gethostname())
 
 def send_metrics_to_server(metrics):
+    # added to the queue
+    # Worker thread sends to server as JSON request
     metrics_queue.add_metrics(metrics)
 
 def check_for_commands():
@@ -104,7 +95,7 @@ def main():
                 )
                 print("✅ Earth location determined:", locationOnEarth)
 
-                # Prepare combined metrics
+                # dictionary sent on as json payload
                 combined_metrics = {
                     "device_id": device_id,
                     "timestamp": datetime.datetime.now().isoformat(),
